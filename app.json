@@ -13,11 +13,12 @@
       "resizeMode": "contain",
       "backgroundColor": "#ffffff"
     },
-       "assetBundlePatterns": [
+    "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.depingo.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -33,12 +34,20 @@
         "ACCESS_BACKGROUND_LOCATION",
         "ACTIVITY_RECOGNITION",
         "INTERNET",
-        "ACCESS_NETWORK_STATE"
+        "ACCESS_NETWORK_STATE",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION"
       ],
       "intentFilters": [
         {
           "action": "VIEW",
-          "category": ["BROWSABLE", "DEFAULT"],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ],
           "data": {
             "scheme": "solana-wallet"
           }
@@ -52,7 +61,7 @@
     },
     "plugins": [
       "expo-router",
-       [
+      [
         "expo-location",
         {
           "locationAlwaysAndWhenInUsePermission": "Allow DePIN-Go to use your location for proof generation.",
