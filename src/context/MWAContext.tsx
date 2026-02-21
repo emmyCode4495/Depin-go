@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import { transact } from '@solana-mobile/mobile-wallet-adapter-protocol-web3js';
 import { PublicKey } from '@solana/web3.js';
 import { toByteArray } from 'react-native-quick-base64';
@@ -6,14 +6,24 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const AUTH_TOKEN_KEY = '@depin-go:auth_token';
 const BASE64_ADDRESS_KEY = '@depin-go:base64_address';
-
 const APP_IDENTITY = {
   name: 'DePIN-Go',
   uri: 'https://depingo.io',
   icon: 'favicon.ico',
 };
 
-export function useMWA() {
+interface MWAContextType {
+  walletAddress: PublicKey | null;
+  base64Address: string | null;
+  isConnecting: boolean;
+  isConnected: boolean;
+  connect: () => Promise<PublicKey | undefined>;
+  disconnect: () => Promise<void>;
+}
+
+const MWAContext = createContext<MWAContextType | null>(null);
+
+export function MWAProvider({ children }: { children: ReactNode }) {
   const [walletAddress, setWalletAddress] = useState<PublicKey | null>(null);
   const [base64Address, setBase64Address] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
@@ -21,36 +31,26 @@ export function useMWA() {
   const connect = useCallback(async () => {
     try {
       setIsConnecting(true);
-
-      // Check for saved auth token for silent re-auth
       const savedToken = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
-
       const result = await transact(async (wallet) => {
         const authorization = await wallet.authorize({
-          chain: 'solana:devnet',         // FIX: 'chain' not 'cluster'
+          chain: 'solana:devnet',
           identity: APP_IDENTITY,
           ...(savedToken ? { auth_token: savedToken } : {}),
         });
-
         const account = authorization.accounts[0];
-
-        // FIX: address is Base64, not base58 - decode with toByteArray
         const publicKey = new PublicKey(toByteArray(account.address));
-
         return {
           publicKey,
-          base64Address: account.address,  // Save for signing
+          base64Address: account.address,
           authToken: authorization.auth_token,
         };
       });
 
-      // Persist auth token for future sessions
       await AsyncStorage.setItem(AUTH_TOKEN_KEY, result.authToken);
       await AsyncStorage.setItem(BASE64_ADDRESS_KEY, result.base64Address);
-
       setWalletAddress(result.publicKey);
       setBase64Address(result.base64Address);
-
       return result.publicKey;
     } catch (error) {
       console.error('MWA connection failed:', error);
@@ -63,7 +63,6 @@ export function useMWA() {
   const disconnect = useCallback(async () => {
     try {
       const savedToken = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
-
       if (savedToken) {
         await transact(async (wallet) => {
           await wallet.deauthorize({ auth_token: savedToken });
@@ -79,12 +78,22 @@ export function useMWA() {
     }
   }, []);
 
-  return {
-    walletAddress,
-    base64Address,  
-    isConnecting,
-    connect,
-    disconnect,
-    isConnected: walletAddress !== null,
-  };
+  return (
+    <MWAContext.Provider value={{
+      walletAddress,
+      base64Address,
+      isConnecting,
+      isConnected: walletAddress !== null,
+      connect,
+      disconnect,
+    }}>
+      {children}
+    </MWAContext.Provider>
+  );
+}
+
+export function useMWA() {
+  const ctx = useContext(MWAContext);
+  if (!ctx) throw new Error('useMWA must be used inside MWAProvider');
+  return ctx;
 }

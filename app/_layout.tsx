@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { SolanaProvider } from '@/src/providers/SolanaProvider';
+import { MWAProvider } from '@/src/context/MWAContext';  // 👈 add this
 import 'react-native-get-random-values';
 import { Buffer } from 'buffer';
 
@@ -14,9 +15,11 @@ export default function RootLayout() {
 
   return (
     <SolanaProvider>
+      <MWAProvider>
       <Stack>
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       </Stack>
+      </MWAProvider>
     </SolanaProvider>
   );
 }

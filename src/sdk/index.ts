@@ -20,7 +20,7 @@ export { AccelerometerProofGenerator } from './sensors/AccelerometerProof';
 export { useDePIN } from '../hooks/useDePIN';
 export { useSensorProof } from '../hooks/useSensorProof';
 export { useProofSubmission } from '../hooks/useProofSubmission';
-export { useMWA } from '../hooks/useMWA';
+export { useMWA } from '@/src/context/MWAContext';
 
 // Types
 export * from '../types';

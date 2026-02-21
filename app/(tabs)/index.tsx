@@ -1,148 +1,417 @@
-import { StyleSheet, Text, View, TouchableOpacity, Alert } from 'react-native';
-import { useState } from 'react';
-import { useMWA } from '@/src/hooks/useMWA';
-import { SensorManager } from '@/src/sdk/sensors/SensorManager';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Alert, RefreshControl } from 'react-native';
+import { useState, useEffect } from 'react';
+import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { useMWA } from '@/src/context/MWAContext';
+import { WalletConnect } from '@/src/components/WalletConnect';
+import { ProofsList } from '@/src/components/ProofsList';
+import { proofStorage } from '@/src/sdk/storage/ProofStorage';
+import { SensorProof } from '@/src/types';
 
 export default function DashboardScreen() {
   const { walletAddress, isConnecting, connect, disconnect, isConnected } = useMWA();
-  const [gpsData, setGpsData] = useState<any>(null);
+  const [proofs, setProofs] = useState<SensorProof[]>([]);
+  const [stats, setStats] = useState({
+    total: 0,
+    pending: 0,
+    submitted: 0,
+  });
+  const [refreshing, setRefreshing] = useState(false);
 
-  const handleConnect = async () => {
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const loadData = async () => {
     try {
-      await connect();
-      Alert.alert('Success', 'Wallet connected!');
+      // Load recent proofs (last 10)
+      const allStoredProofs = await proofStorage.getAllProofs();
+      const recentProofs = allStoredProofs
+        .slice(-10)
+        .reverse()
+        .map(sp => sp.proof);
+      
+      setProofs(recentProofs);
+
+      // Load stats
+      const storageStats = await proofStorage.getStats();
+      setStats({
+        total: storageStats.totalProofs,
+        pending: storageStats.pendingProofs,
+        submitted: storageStats.submittedProofs,
+      });
     } catch (error) {
-      Alert.alert('Error', 'Failed to connect wallet');
+      console.error('Failed to load data:', error);
     }
   };
 
-  const handleGetGPS = async () => {
-    const sensorManager = new SensorManager();
-    const hasPermission = await sensorManager.requestPermissions();
-    
-    if (!hasPermission) {
-      Alert.alert('Permission Denied', 'GPS access is required');
-      return;
-    }
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await loadData();
+    setRefreshing(false);
+  };
 
-    const data = await sensorManager.getGPSData();
-    setGpsData(data);
+  const handleProofPress = (proof: SensorProof) => {
+    const data = JSON.stringify(proof.sensorData.data, null, 2);
+    Alert.alert(
+      'Proof Details',
+      `Type: ${proof.sensorData.type}\n\nData:\n${data}\n\nHash: ${proof.proofHash}`,
+      [{ text: 'OK' }]
+    );
+  };
+
+  const handleClearStorage = async () => {
+    Alert.alert(
+      'Clear All Proofs',
+      'Are you sure you want to delete all stored proofs? This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete All',
+          style: 'destructive',
+          onPress: async () => {
+            await proofStorage.clearAllProofs();
+            await loadData();
+            Alert.alert('Success', 'All proofs have been deleted');
+          },
+        },
+      ]
+    );
   };
 
   return (
-    <View style={styles.container}>
+    <ScrollView 
+      style={styles.container}
+      refreshControl={
+        <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+      }
+    >
       <Text style={styles.title}>DePIN-Go Dashboard</Text>
-      
-      {/* Wallet Connection */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Wallet Status</Text>
-        {isConnected ? (
-          <>
-            <Text style={styles.address}>
-              {walletAddress?.toBase58().slice(0, 8)}...
-              {walletAddress?.toBase58().slice(-8)}
-            </Text>
-            <TouchableOpacity style={styles.buttonSecondary} onPress={disconnect}>
-              <Text style={styles.buttonText}>Disconnect</Text>
+      <Text style={styles.subtitle}>
+        Decentralized Physical Infrastructure SDK
+      </Text>
+
+      {/* Wallet Connection Card */}
+      <WalletConnect
+        isConnected={isConnected}
+        isConnecting={isConnecting}
+        walletAddress={walletAddress}
+        onConnect={connect}
+        onDisconnect={disconnect}
+        cluster="devnet"
+      />
+
+      {/* Stats Overview */}
+      {isConnected && (
+        <View style={styles.statsContainer}>
+          <Text style={styles.sectionTitle}>Overview</Text>
+          <View style={styles.statsGrid}>
+            <View style={styles.statBox}>
+              <Text style={styles.statValue}>{stats.total}</Text>
+              <Text style={styles.statLabel}>Total Proofs</Text>
+            </View>
+            <View style={styles.statBox}>
+              <Text style={styles.statValue}>{stats.pending}</Text>
+              <Text style={styles.statLabel}>Pending</Text>
+            </View>
+            <View style={styles.statBox}>
+              <Text style={styles.statValue}>{stats.submitted}</Text>
+              <Text style={styles.statLabel}>Submitted</Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Quick Actions */}
+      {isConnected && (
+        <View style={styles.actionsCard}>
+          <Text style={styles.sectionTitle}>Quick Actions</Text>
+          <View style={styles.actionsGrid}>
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => router.push('/(tabs)/explore')}
+            >
+              <Ionicons name="location" size={32} color="#9945FF" style={styles.actionIcon} />
+              <Text style={styles.actionText}>Generate GPS Proof</Text>
             </TouchableOpacity>
-          </>
-        ) : (
-          <TouchableOpacity 
-            style={styles.button} 
-            onPress={handleConnect}
-            disabled={isConnecting}
-          >
-            <Text style={styles.buttonText}>
-              {isConnecting ? 'Connecting...' : 'Connect Wallet'}
-            </Text>
-          </TouchableOpacity>
-        )}
+
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => router.push('/(tabs)/explore')}
+            >
+              <Ionicons name="fitness" size={32} color="#9945FF" style={styles.actionIcon} />
+              <Text style={styles.actionText}>Track Movement</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={handleRefresh}
+            >
+              <Ionicons name="refresh" size={32} color="#9945FF" style={styles.actionIcon} />
+              <Text style={styles.actionText}>Refresh Data</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={handleClearStorage}
+            >
+              <Ionicons name="trash-outline" size={32} color="#9945FF" style={styles.actionIcon} />
+              <Text style={styles.actionText}>Clear Storage</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Recent Proofs */}
+      {isConnected && (
+        <View style={styles.proofsSection}>
+          <Text style={styles.sectionTitle}>Recent Proofs</Text>
+          {proofs.length > 0 ? (
+            <ProofsList
+              proofs={proofs}
+              onProofPress={handleProofPress}
+              showSubmitButton={false}
+            />
+          ) : (
+            <View style={styles.emptyState}>
+              <Ionicons name="document-text-outline" size={48} color="#CCC" style={styles.emptyIcon} />
+              <Text style={styles.emptyText}>No proofs yet</Text>
+              <Text style={styles.emptySubtext}>
+                Go to Sensors tab to generate your first proof
+              </Text>
+            </View>
+          )}
+        </View>
+      )}
+
+      {/* Getting Started (when not connected) */}
+      {!isConnected && (
+        <View style={styles.gettingStarted}>
+          <Text style={styles.sectionTitle}>Getting Started</Text>
+          <View style={styles.stepCard}>
+            <Text style={styles.stepNumber}>1</Text>
+            <View style={styles.stepContent}>
+              <Text style={styles.stepTitle}>Connect Your Wallet</Text>
+              <Text style={styles.stepText}>
+                Use Mobile Wallet Adapter to connect your Solana wallet
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.stepCard}>
+            <Text style={styles.stepNumber}>2</Text>
+            <View style={styles.stepContent}>
+              <Text style={styles.stepTitle}>Generate Proofs</Text>
+              <Text style={styles.stepText}>
+                Create cryptographically signed sensor proofs with Seed Vault
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.stepCard}>
+            <Text style={styles.stepNumber}>3</Text>
+            <View style={styles.stepContent}>
+              <Text style={styles.stepTitle}>Build DePIN Apps</Text>
+              <Text style={styles.stepText}>
+                Use the SDK to build location-based, activity-based, or any DePIN application
+              </Text>
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* About Section */}
+      <View style={styles.aboutCard}>
+        <Text style={styles.aboutTitle}>About DePIN-Go</Text>
+        <Text style={styles.aboutText}>
+          DePIN-Go is a middleware SDK that turns any Solana Mobile device into a verified 
+          sensor node. It uses Seed Vault for hardware-backed cryptographic signatures, 
+          ensuring sensor data cannot be faked or spoofed.
+        </Text>
+        <Text style={styles.aboutText}>
+          Perfect for building Hivemapper-style mapping apps, weather oracles, fitness 
+          trackers, and any DePIN application that needs verifiable sensor data.
+        </Text>
       </View>
 
-      {/* GPS Test */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>GPS Sensor</Text>
-        <TouchableOpacity style={styles.button} onPress={handleGetGPS}>
-          <Text style={styles.buttonText}>Get GPS Data</Text>
-        </TouchableOpacity>
-        {gpsData && (
-          <View style={styles.dataContainer}>
-            <Text style={styles.dataText}>
-              Lat: {gpsData.data.latitude.toFixed(6)}
-            </Text>
-            <Text style={styles.dataText}>
-              Lng: {gpsData.data.longitude.toFixed(6)}
-            </Text>
-            <Text style={styles.dataText}>
-              Accuracy: {gpsData.data.accuracy}m
-            </Text>
-          </View>
-        )}
+      <View style={styles.footer}>
+        <Text style={styles.footerText}>DePIN-Go SDK v1.0.0</Text>
+        <Text style={styles.footerText}>Built for Solana Mobile Hackathon 2025</Text>
       </View>
-    </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 20,
     backgroundColor: '#f5f5f5',
   },
   title: {
-    fontSize: 28,
+    fontSize: 32,
     fontWeight: 'bold',
-    marginBottom: 20,
     color: '#9945FF',
+    marginTop: 20,
+    marginHorizontal: 20,
   },
-  card: {
+  subtitle: {
+    fontSize: 14,
+    color: '#666',
+    marginBottom: 20,
+    marginHorizontal: 20,
+  },
+  sectionTitle: {
+    fontSize: 20,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 12,
+  },
+  statsContainer: {
     backgroundColor: 'white',
     borderRadius: 12,
     padding: 20,
+    marginHorizontal: 20,
     marginBottom: 16,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
   },
-  cardTitle: {
+  statsGrid: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  statBox: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  statValue: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#9945FF',
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 4,
+  },
+  actionsCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 20,
+    marginHorizontal: 20,
+    marginBottom: 16,
+  },
+  actionsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  actionButton: {
+    flex: 1,
+    minWidth: '45%',
+    backgroundColor: '#F9F7FF',
+    borderRadius: 8,
+    padding: 16,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#9945FF',
+  },
+  actionIcon: {
+    marginBottom: 8,
+  },
+  actionText: {
+    fontSize: 12,
+    color: '#333',
+    textAlign: 'center',
+    fontWeight: '500',
+  },
+  proofsSection: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 20,
+    marginHorizontal: 20,
+    marginBottom: 16,
+  },
+  emptyState: {
+    alignItems: 'center',
+    padding: 40,
+  },
+  emptyIcon: {
+    marginBottom: 16,
+  },
+  emptyText: {
     fontSize: 18,
     fontWeight: '600',
+    color: '#666',
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: '#999',
+    textAlign: 'center',
+  },
+  gettingStarted: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+  },
+  stepCard: {
+    flexDirection: 'row',
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 16,
     marginBottom: 12,
+    alignItems: 'center',
   },
-  button: {
+  stepNumber: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: '#9945FF',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  buttonSecondary: {
-    backgroundColor: '#666',
-    padding: 16,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  buttonText: {
     color: 'white',
+    fontSize: 20,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    lineHeight: 40,
+    marginRight: 16,
+  },
+  stepContent: {
+    flex: 1,
+  },
+  stepTitle: {
     fontSize: 16,
     fontWeight: '600',
+    color: '#333',
+    marginBottom: 4,
   },
-  address: {
+  stepText: {
     fontSize: 14,
-    fontFamily: 'monospace',
-    marginBottom: 12,
     color: '#666',
+    lineHeight: 20,
   },
-  dataContainer: {
-    marginTop: 12,
-    padding: 12,
-    backgroundColor: '#f8f8f8',
-    borderRadius: 8,
+  aboutCard: {
+    backgroundColor: 'white',
+    borderRadius: 12,
+    padding: 20,
+    marginHorizontal: 20,
+    marginBottom: 16,
   },
-  dataText: {
+  aboutTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 12,
+  },
+  aboutText: {
     fontSize: 14,
-    fontFamily: 'monospace',
+    color: '#666',
+    lineHeight: 22,
+    marginBottom: 12,
+  },
+  footer: {
+    alignItems: 'center',
+    padding: 20,
+    marginBottom: 40,
+  },
+  footerText: {
+    fontSize: 12,
+    color: '#999',
     marginBottom: 4,
   },
 });
