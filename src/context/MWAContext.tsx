@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import { transact } from '@solana-mobile/mobile-wallet-adapter-protocol-web3js';
 import { PublicKey } from '@solana/web3.js';
 import { toByteArray } from 'react-native-quick-base64';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { seedVaultSigner } from '@/src/sdk/crypto/SeedVaultSigner';
 
 const AUTH_TOKEN_KEY = '@depin-go:auth_token';
 const BASE64_ADDRESS_KEY = '@depin-go:base64_address';
@@ -28,10 +29,30 @@ export function MWAProvider({ children }: { children: ReactNode }) {
   const [base64Address, setBase64Address] = useState<string | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
 
+  // Restore persisted session without opening wallet popup
+  useEffect(() => {
+    const restoreSession = async () => {
+      try {
+        const savedToken = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+        const savedBase64 = await AsyncStorage.getItem(BASE64_ADDRESS_KEY);
+        if (savedToken && savedBase64) {
+          const publicKey = new PublicKey(toByteArray(savedBase64));
+          seedVaultSigner.setAuthorized(publicKey, savedToken, savedBase64);
+          setWalletAddress(publicKey);
+          setBase64Address(savedBase64);
+        }
+      } catch {
+        await AsyncStorage.multiRemove([AUTH_TOKEN_KEY, BASE64_ADDRESS_KEY]);
+      }
+    };
+    restoreSession();
+  }, []);
+
   const connect = useCallback(async () => {
     try {
       setIsConnecting(true);
       const savedToken = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+
       const result = await transact(async (wallet) => {
         const authorization = await wallet.authorize({
           chain: 'solana:devnet',
@@ -49,6 +70,10 @@ export function MWAProvider({ children }: { children: ReactNode }) {
 
       await AsyncStorage.setItem(AUTH_TOKEN_KEY, result.authToken);
       await AsyncStorage.setItem(BASE64_ADDRESS_KEY, result.base64Address);
+
+      // ✅ Sync signer so useSensorProof passes isAuthorized() check
+      seedVaultSigner.setAuthorized(result.publicKey, result.authToken, result.base64Address);
+
       setWalletAddress(result.publicKey);
       setBase64Address(result.base64Address);
       return result.publicKey;
@@ -71,8 +96,8 @@ export function MWAProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.error('Disconnect failed:', error);
     } finally {
-      await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
-      await AsyncStorage.removeItem(BASE64_ADDRESS_KEY);
+      await AsyncStorage.multiRemove([AUTH_TOKEN_KEY, BASE64_ADDRESS_KEY]);
+      seedVaultSigner.clearAuthorization(); // ✅ clear signer state too
       setWalletAddress(null);
       setBase64Address(null);
     }

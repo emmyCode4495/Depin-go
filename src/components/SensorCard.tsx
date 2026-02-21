@@ -4,6 +4,7 @@
 
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { SensorType } from '@/src/types';
 
@@ -26,57 +27,91 @@ export function SensorCard({
   onDeactivate,
   onGenerateProof,
 }: SensorCardProps) {
-  const sensorConfig = getSensorConfig(sensorType);
+  const config = getSensorConfig(sensorType);
+  const accentColor = sensorType === 'gps' ? '#14F195' : '#F5A623';
 
   return (
-    <View style={[styles.card, isActive && styles.cardActive]}>
+    <View style={[
+      styles.card,
+      isActive && { borderColor: accentColor + '55' },
+      { marginHorizontal: 16, marginBottom: 12 }
+    ]}>
+      {/* Active glow strip */}
+      {isActive && (
+        <LinearGradient
+          colors={[accentColor + '22', 'transparent']}
+          style={StyleSheet.absoluteFillObject}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 0, y: 1 }}
+          pointerEvents="none"
+        />
+      )}
+
+      {/* Header */}
       <View style={styles.header}>
-        <View style={styles.titleContainer}>
-          <Ionicons
-            name={sensorConfig.icon as any}
-            size={24}
-            color={isActive ? '#9945FF' : '#666'}
-          />
-          <Text style={styles.title}>{sensorConfig.name}</Text>
+        <View style={[styles.iconBadge, { backgroundColor: accentColor + '18' }]}>
+          <Ionicons name={config.icon as any} size={20} color={isActive ? accentColor : '#444'} />
         </View>
-        <View style={[styles.statusBadge, isActive && styles.statusBadgeActive]}>
-          <Text style={[styles.statusText, isActive && styles.statusTextActive]}>
-            {isActive ? 'Active' : 'Inactive'}
+        <View style={styles.titleBlock}>
+          <Text style={styles.title}>{config.name}</Text>
+          <Text style={styles.description}>{config.description}</Text>
+        </View>
+        <View style={[styles.statusPill, { backgroundColor: isActive ? accentColor + '20' : '#1A1A2E' }]}>
+          <View style={[styles.statusDot, { backgroundColor: isActive ? accentColor : '#333' }]} />
+          <Text style={[styles.statusText, { color: isActive ? accentColor : '#444' }]}>
+            {isActive ? 'Active' : 'Idle'}
           </Text>
         </View>
       </View>
 
-      <Text style={styles.description}>{sensorConfig.description}</Text>
+      {/* Divider */}
+      <View style={styles.divider} />
 
       {/* Last Reading */}
       {lastReading && (
-        <View style={styles.readingContainer}>
-          <Text style={styles.readingLabel}>Last Reading:</Text>
+        <View style={styles.readingBox}>
+          <Text style={styles.readingLabel}>LAST READING</Text>
           <Text style={styles.readingValue}>{formatReading(sensorType, lastReading)}</Text>
         </View>
       )}
 
-      {/* Proof Count */}
-      <View style={styles.statsRow}>
-        <View style={styles.stat}>
-          <Text style={styles.statValue}>{proofCount}</Text>
-          <Text style={styles.statLabel}>Proofs</Text>
-        </View>
+      {/* Proof count */}
+      <View style={styles.proofRow}>
+        <Ionicons name="shield-checkmark-outline" size={13} color="#9945FF" />
+        <Text style={styles.proofCount}>{proofCount}</Text>
+        <Text style={styles.proofLabel}>proof{proofCount !== 1 ? 's' : ''} generated</Text>
       </View>
 
       {/* Actions */}
       <View style={styles.actions}>
         {!isActive ? (
-          <TouchableOpacity style={styles.button} onPress={onActivate}>
-            <Text style={styles.buttonText}>Activate</Text>
+          <TouchableOpacity style={styles.activateBtn} onPress={onActivate} activeOpacity={0.8}>
+            <LinearGradient
+              colors={['#9945FF', accentColor]}
+              style={styles.activateBtnGrad}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+            >
+              <Ionicons name="power" size={15} color="#fff" />
+              <Text style={styles.activateBtnText}>Activate</Text>
+            </LinearGradient>
           </TouchableOpacity>
         ) : (
           <>
-            <TouchableOpacity style={styles.buttonSecondary} onPress={onDeactivate}>
-              <Text style={styles.buttonTextSecondary}>Deactivate</Text>
+            <TouchableOpacity style={styles.deactivateBtn} onPress={onDeactivate} activeOpacity={0.8}>
+              <Ionicons name="power" size={14} color="#555" />
+              <Text style={styles.deactivateBtnText}>Deactivate</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.button} onPress={onGenerateProof}>
-              <Text style={styles.buttonText}>Generate Proof</Text>
+            <TouchableOpacity style={styles.generateBtn} onPress={onGenerateProof} activeOpacity={0.8}>
+              <LinearGradient
+                colors={['#9945FF', accentColor]}
+                style={styles.generateBtnGrad}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+              >
+                <Ionicons name="shield-checkmark" size={15} color="#fff" />
+                <Text style={styles.generateBtnText}>Generate Proof</Text>
+              </LinearGradient>
             </TouchableOpacity>
           </>
         )}
@@ -85,20 +120,19 @@ export function SensorCard({
   );
 }
 
+// ─── Config ───────────────────────────────────────────────────────────────────
+
 function getSensorConfig(sensorType: string) {
-  const configs: Record<
-    string,
-    { name: string; icon: string; description: string }
-  > = {
+  const configs: Record<string, { name: string; icon: string; description: string }> = {
     gps: {
       name: 'GPS Location',
       icon: 'location',
-      description: 'Track location with cryptographic proof',
+      description: 'Signed location proof via satellite',
     },
     accelerometer: {
       name: 'Accelerometer',
       icon: 'fitness',
-      description: 'Detect movement and physical activity',
+      description: 'Detect and prove physical movement',
     },
     gyroscope: {
       name: 'Gyroscope',
@@ -117,139 +151,183 @@ function getSensorConfig(sensorType: string) {
     },
   };
 
-  return (
-    configs[sensorType] || {
-      name: 'Unknown Sensor',
-      icon: 'hardware-chip',
-      description: 'Sensor description',
-    }
-  );
+  return configs[sensorType] || { name: 'Unknown Sensor', icon: 'hardware-chip', description: 'Sensor data' };
 }
 
 function formatReading(sensorType: string, reading: any): string {
   switch (sensorType) {
     case 'gps':
-      return `${reading.latitude?.toFixed(6)}, ${reading.longitude?.toFixed(6)}`;
+      return `${reading.latitude?.toFixed(6)},  ${reading.longitude?.toFixed(6)}`;
     case 'accelerometer':
-      return `X: ${reading.x?.toFixed(2)}, Y: ${reading.y?.toFixed(2)}, Z: ${reading.z?.toFixed(2)}`;
+      return `x ${reading.x?.toFixed(3)}   y ${reading.y?.toFixed(3)}   z ${reading.z?.toFixed(3)}`;
     default:
-      return JSON.stringify(reading);
+      return JSON.stringify(reading).slice(0, 80);
   }
 }
 
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-    borderWidth: 2,
-    borderColor: '#E5E5E5',
+    backgroundColor: '#111118',
+    borderRadius: 18,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#1C1C2E',
+    overflow: 'hidden',
   },
-  cardActive: {
-    borderColor: '#9945FF',
-    backgroundColor: '#F9F7FF',
-  },
+
+  // Header
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    gap: 12,
+    marginBottom: 14,
   },
-  titleContainer: {
-    flexDirection: 'row',
+  iconBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  titleBlock: {
+    flex: 1,
   },
   title: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#333',
-  },
-  statusBadge: {
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-    backgroundColor: '#E5E5E5',
-  },
-  statusBadgeActive: {
-    backgroundColor: '#E8F5E9',
-  },
-  statusText: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#666',
-  },
-  statusTextActive: {
-    color: '#4CAF50',
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#EEE',
+    letterSpacing: -0.2,
   },
   description: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 12,
-  },
-  readingContainer: {
-    backgroundColor: '#F5F5F5',
-    padding: 12,
-    borderRadius: 8,
-    marginBottom: 12,
-  },
-  readingLabel: {
     fontSize: 12,
-    color: '#666',
-    marginBottom: 4,
-  },
-  readingValue: {
-    fontSize: 14,
-    fontFamily: 'monospace',
-    color: '#333',
-  },
-  statsRow: {
-    flexDirection: 'row',
-    marginBottom: 12,
-  },
-  stat: {
-    alignItems: 'center',
-    marginRight: 24,
-  },
-  statValue: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#9945FF',
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#666',
+    color: '#444',
     marginTop: 2,
   },
+  statusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+
+  // Divider
+  divider: {
+    height: 1,
+    backgroundColor: '#1A1A2E',
+    marginBottom: 14,
+  },
+
+  // Reading
+  readingBox: {
+    backgroundColor: '#0D0D18',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#1C1C30',
+  },
+  readingLabel: {
+    fontSize: 9,
+    fontWeight: '700',
+    color: '#444',
+    letterSpacing: 1.5,
+    marginBottom: 5,
+  },
+  readingValue: {
+    fontSize: 13,
+    fontFamily: 'monospace',
+    color: '#9945FF',
+    letterSpacing: 0.5,
+  },
+
+  // Proof count
+  proofRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    marginBottom: 16,
+  },
+  proofCount: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#9945FF',
+  },
+  proofLabel: {
+    fontSize: 12,
+    color: '#444',
+  },
+
+  // Actions
   actions: {
     flexDirection: 'row',
-    gap: 8,
+    gap: 10,
   },
-  button: {
+  activateBtn: {
     flex: 1,
-    backgroundColor: '#9945FF',
-    padding: 12,
-    borderRadius: 8,
-    alignItems: 'center',
+    borderRadius: 12,
+    overflow: 'hidden',
   },
-  buttonText: {
-    color: 'white',
+  activateBtnGrad: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    paddingVertical: 13,
+  },
+  activateBtnText: {
+    color: '#fff',
     fontSize: 14,
-    fontWeight: '600',
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
-  buttonSecondary: {
+  deactivateBtn: {
     flex: 1,
-    backgroundColor: 'white',
-    padding: 12,
-    borderRadius: 8,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 13,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#9945FF',
+    borderColor: '#2A2A3E',
+    backgroundColor: '#0D0D18',
   },
-  buttonTextSecondary: {
-    color: '#9945FF',
-    fontSize: 14,
+  deactivateBtnText: {
+    color: '#555',
+    fontSize: 13,
     fontWeight: '600',
+  },
+  generateBtn: {
+    flex: 2,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  generateBtnGrad: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 7,
+    paddingVertical: 13,
+  },
+  generateBtnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
 });

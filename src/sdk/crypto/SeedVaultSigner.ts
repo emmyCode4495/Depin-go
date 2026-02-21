@@ -2,8 +2,16 @@ import { transact } from '@solana-mobile/mobile-wallet-adapter-protocol-web3js';
 import { PublicKey } from '@solana/web3.js';
 import nacl from 'tweetnacl';
 import bs58 from 'bs58';
-import { toByteArray, fromByteArray } from 'react-native-quick-base64';
+import { toByteArray } from 'react-native-quick-base64';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
+const AUTH_TOKEN_KEY = '@depin-go:auth_token';
+
+const APP_IDENTITY = {
+  name: 'DePIN-Go',
+  uri: 'https://depingo.io',
+  icon: 'favicon.ico',
+};
 
 export class SeedVaultSigner {
   private authorizedPublicKey: PublicKey | null = null;
@@ -14,17 +22,11 @@ export class SeedVaultSigner {
     try {
       const result = await transact(async (wallet) => {
         const authorization = await wallet.authorize({
-          chain: 'solana:devnet',           // FIX 1: 'chain' not 'cluster'
-          identity: {
-            name: 'DePIN-Go',
-            uri: 'https://depingo.io',
-            icon: 'favicon.ico',
-          },
+          chain: 'solana:devnet',
+          identity: APP_IDENTITY,
         });
 
         const account = authorization.accounts[0];
-
-        // FIX 2: address is Base64, decode to bytes first
         const publicKey = new PublicKey(toByteArray(account.address));
 
         return {
@@ -52,11 +54,7 @@ export class SeedVaultSigner {
       const result = await transact(async (wallet) => {
         const authorization = await wallet.authorize({
           chain: 'solana:devnet',
-          identity: {
-            name: 'DePIN-Go',
-            uri: 'https://depingo.io',
-            icon: 'favicon.ico',
-          },
+          identity: APP_IDENTITY,
           auth_token: this.authToken!,
         });
 
@@ -90,7 +88,17 @@ export class SeedVaultSigner {
 
     try {
       const result = await transact(async (wallet) => {
-        // FIX 3: signMessages expects Base64 address, not base58
+        // ✅ MUST reauthorize inside every transact() before signing
+        // Without this, MWA throws -1/auth_token not valid for signing
+        const reauth = await wallet.reauthorize({
+          auth_token: this.authToken!,
+          identity: APP_IDENTITY,
+        });
+
+        // Persist the refreshed token so future sessions stay valid
+        this.authToken = reauth.auth_token;
+        await AsyncStorage.setItem(AUTH_TOKEN_KEY, reauth.auth_token);
+
         const signatures = await wallet.signMessages({
           addresses: [this.base64Address!],
           payloads: [data],
@@ -162,6 +170,22 @@ export class SeedVaultSigner {
       this.authToken !== null &&
       this.base64Address !== null
     );
+  }
+
+  /**
+   * Called by MWAContext to sync authorization state
+   * without triggering a second wallet popup
+   */
+  setAuthorized(publicKey: PublicKey, authToken: string, base64Address: string): void {
+    this.authorizedPublicKey = publicKey;
+    this.authToken = authToken;
+    this.base64Address = base64Address;
+  }
+
+  clearAuthorization(): void {
+    this.authorizedPublicKey = null;
+    this.authToken = null;
+    this.base64Address = null;
   }
 
   async deauthorize(): Promise<void> {

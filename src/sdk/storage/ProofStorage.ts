@@ -31,13 +31,8 @@ export class ProofStorage {
         submitted: false,
       };
 
-      // Get existing proofs
       const proofs = await this.getAllProofs();
-      
-      // Add new proof
       proofs.push(storedProof);
-
-      // Save back to storage
       await AsyncStorage.setItem(STORAGE_KEYS.PROOFS, JSON.stringify(proofs));
     } catch (error) {
       console.error('Failed to save proof:', error);
@@ -57,7 +52,6 @@ export class ProofStorage {
 
       const existingProofs = await this.getAllProofs();
       const allProofs = [...existingProofs, ...storedProofs];
-
       await AsyncStorage.setItem(STORAGE_KEYS.PROOFS, JSON.stringify(allProofs));
     } catch (error) {
       console.error('Failed to save batch proofs:', error);
@@ -72,11 +66,24 @@ export class ProofStorage {
     try {
       const data = await AsyncStorage.getItem(STORAGE_KEYS.PROOFS);
       if (!data) return [];
-
       return JSON.parse(data);
     } catch (error) {
       console.error('Failed to get proofs:', error);
       return [];
+    }
+  }
+
+  /**
+   * Delete a single proof by hash
+   */
+  async deleteProof(proofHash: string): Promise<void> {
+    try {
+      const proofs = await this.getAllProofs();
+      const filtered = proofs.filter((sp) => sp.proof.proofHash !== proofHash);
+      await AsyncStorage.setItem(STORAGE_KEYS.PROOFS, JSON.stringify(filtered));
+    } catch (error) {
+      console.error('Failed to delete proof:', error);
+      throw error;
     }
   }
 
@@ -105,16 +112,12 @@ export class ProofStorage {
   ): Promise<void> {
     try {
       const proofs = await this.getAllProofs();
-      
-      const index = proofs.findIndex(
-        (sp) => sp.proof.proofHash === proofHash
-      );
+      const index = proofs.findIndex((sp) => sp.proof.proofHash === proofHash);
 
       if (index !== -1) {
         proofs[index].submitted = true;
         proofs[index].submittedAt = Date.now();
         proofs[index].transactionSignature = transactionSignature;
-
         await AsyncStorage.setItem(STORAGE_KEYS.PROOFS, JSON.stringify(proofs));
       }
     } catch (error) {
@@ -129,14 +132,10 @@ export class ProofStorage {
   async markAsFailed(proofHash: string, error: string): Promise<void> {
     try {
       const proofs = await this.getAllProofs();
-      
-      const index = proofs.findIndex(
-        (sp) => sp.proof.proofHash === proofHash
-      );
+      const index = proofs.findIndex((sp) => sp.proof.proofHash === proofHash);
 
       if (index !== -1) {
         proofs[index].error = error;
-
         await AsyncStorage.setItem(STORAGE_KEYS.PROOFS, JSON.stringify(proofs));
       }
     } catch (error) {
@@ -176,7 +175,7 @@ export class ProofStorage {
     submittedProofs: number;
     pendingProofs: number;
     failedProofs: number;
-    storageSize: number; // bytes
+    storageSize: number;
   }> {
     const proofs = await this.getAllProofs();
     const data = await AsyncStorage.getItem(STORAGE_KEYS.PROOFS);
@@ -185,7 +184,7 @@ export class ProofStorage {
       totalProofs: proofs.length,
       submittedProofs: proofs.filter((p) => p.submitted).length,
       pendingProofs: proofs.filter((p) => !p.submitted && !p.error).length,
-      failedProofs: proofs.filter((p) => p.error).length,
+      failedProofs: proofs.filter((p) => !!p.error).length,
       storageSize: data ? new Blob([data]).size : 0,
     };
   }
@@ -197,16 +196,11 @@ export class ProofStorage {
     try {
       const cutoffDate = Date.now() - daysOld * 24 * 60 * 60 * 1000;
       const proofs = await this.getAllProofs();
-
       const recentProofs = proofs.filter(
         (sp) => sp.proof.sensorData.timestamp > cutoffDate
       );
 
-      await AsyncStorage.setItem(
-        STORAGE_KEYS.PROOFS,
-        JSON.stringify(recentProofs)
-      );
-
+      await AsyncStorage.setItem(STORAGE_KEYS.PROOFS, JSON.stringify(recentProofs));
       return proofs.length - recentProofs.length;
     } catch (error) {
       console.error('Failed to clear old proofs:', error);
@@ -241,8 +235,6 @@ export class ProofStorage {
     try {
       const importedProofs: StoredProof[] = JSON.parse(jsonData);
       const existingProofs = await this.getAllProofs();
-
-      // Merge without duplicates
       const allProofs = [...existingProofs];
       let importCount = 0;
 
@@ -250,7 +242,6 @@ export class ProofStorage {
         const exists = allProofs.some(
           (p) => p.proof.proofHash === proof.proof.proofHash
         );
-
         if (!exists) {
           allProofs.push(proof);
           importCount++;
@@ -258,7 +249,6 @@ export class ProofStorage {
       }
 
       await AsyncStorage.setItem(STORAGE_KEYS.PROOFS, JSON.stringify(allProofs));
-
       return importCount;
     } catch (error) {
       console.error('Failed to import proofs:', error);
@@ -271,12 +261,9 @@ export class ProofStorage {
    */
   async getSubmissionQueue(limit?: number): Promise<StoredProof[]> {
     const pending = await this.getPendingProofs();
-    
-    // Sort by timestamp (oldest first)
     const sorted = pending.sort(
       (a, b) => a.proof.sensorData.timestamp - b.proof.sensorData.timestamp
     );
-
     return limit ? sorted.slice(0, limit) : sorted;
   }
 
@@ -285,10 +272,7 @@ export class ProofStorage {
    */
   async saveSettings(settings: Record<string, any>): Promise<void> {
     try {
-      await AsyncStorage.setItem(
-        STORAGE_KEYS.SETTINGS,
-        JSON.stringify(settings)
-      );
+      await AsyncStorage.setItem(STORAGE_KEYS.SETTINGS, JSON.stringify(settings));
     } catch (error) {
       console.error('Failed to save settings:', error);
       throw error;
@@ -323,12 +307,7 @@ export class ProofStorage {
       }
 
       const compactedProofs = Array.from(uniqueProofs.values());
-      
-      await AsyncStorage.setItem(
-        STORAGE_KEYS.PROOFS,
-        JSON.stringify(compactedProofs)
-      );
-
+      await AsyncStorage.setItem(STORAGE_KEYS.PROOFS, JSON.stringify(compactedProofs));
       return proofs.length - compactedProofs.length;
     } catch (error) {
       console.error('Failed to compact storage:', error);

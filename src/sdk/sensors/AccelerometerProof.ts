@@ -36,111 +36,132 @@ export class AccelerometerProofGenerator {
   }
 
   /**
-   * Get current accelerometer reading
+   * Get current accelerometer reading with a 5s timeout
    */
   async getCurrentReading(): Promise<AccelerometerData> {
     return new Promise((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        subscription.remove();
-        reject(new Error('Accelerometer reading timeout'));
-      }, 5000);
-
       const subscription = Sensors.Accelerometer.addListener((data) => {
         clearTimeout(timeout);
         subscription.remove();
-        resolve({
-          x: data.x,
-          y: data.y,
-          z: data.z,
-        });
+        resolve({ x: data.x, y: data.y, z: data.z });
+      });
+
+      // Declared after subscription so it can reference it safely
+      const timeout = setTimeout(() => {
+        subscription.remove();
+        reject(new Error('Accelerometer reading timeout after 5s'));
+      }, 5000);
+    });
+  }
+
+  /**
+   * Generate a single movement proof by averaging multiple samples.
+   *
+   * Fix: added an overall timeout (duration + 3s buffer) so the promise
+   * never hangs indefinitely if the sensor fires fewer events than expected
+   * (common on simulators or devices with slow sensor init).
+   */
+  async generateMovementProof(options?: {
+    duration?: number; // milliseconds to sample
+    samples?: number;  // number of samples to collect
+  }): Promise<any> {
+    const { duration = 1000, samples = 10 } = options || {};
+
+    return new Promise(async (resolve, reject) => {
+      const readings: AccelerometerData[] = [];
+      let count = 0;
+      let resolved = false;
+
+      const interval = Math.max(50, Math.floor(duration / samples));
+      this.setUpdateInterval(interval);
+
+      // Timeout guard: fire after duration + 3s buffer regardless
+      const hardTimeout = setTimeout(async () => {
+        if (resolved) return;
+        resolved = true;
+        accelSubscription.remove();
+
+        if (readings.length === 0) {
+          return reject(new Error('No accelerometer data received — is the sensor available?'));
+        }
+
+        try {
+          resolve(await this.buildMovementProof(readings, samples, duration));
+        } catch (err) {
+          reject(err);
+        }
+      }, duration + 3000);
+
+      const accelSubscription = Sensors.Accelerometer.addListener(async (data) => {
+        if (resolved) return;
+
+        readings.push({ x: data.x, y: data.y, z: data.z });
+        count++;
+
+        if (count >= samples) {
+          resolved = true;
+          clearTimeout(hardTimeout);
+          accelSubscription.remove();
+
+          try {
+            resolve(await this.buildMovementProof(readings, samples, duration));
+          } catch (err) {
+            reject(err);
+          }
+        }
       });
     });
   }
 
   /**
-   * Generate a single movement proof
+   * Shared helper to build and sign a movement proof from collected readings
    */
-  async generateMovementProof(options?: {
-    duration?: number; // milliseconds to sample
-    samples?: number; // number of samples to average
-  }): Promise<any> {
-    const { duration = 1000, samples = 10 } = options || {};
+  private async buildMovementProof(
+    readings: AccelerometerData[],
+    samples: number,
+    duration: number
+  ): Promise<any> {
+    const avgReading = this.averageReadings(readings);
+    const magnitude = this.calculateMagnitude(avgReading);
 
-    try {
-      // Collect multiple samples
-      const readings: AccelerometerData[] = [];
-      const interval = duration / samples;
+    const sensorData: SensorData = {
+      type: SensorType.ACCELEROMETER,
+      timestamp: Date.now(),
+      data: {
+        ...avgReading,
+        magnitude,
+        sampleCount: readings.length, // actual collected, not requested
+        duration,
+      },
+      deviceId: this.deviceId,
+    };
 
-      this.setUpdateInterval(interval);
-
-      await new Promise((resolve) => {
-        let count = 0;
-        const subscription = Sensors.Accelerometer.addListener((data) => {
-          readings.push({
-            x: data.x,
-            y: data.y,
-            z: data.z,
-          });
-
-          count++;
-          if (count >= samples) {
-            subscription.remove();
-            resolve(undefined);
-          }
-        });
-      });
-
-      // Calculate average and magnitude
-      const avgReading = this.averageReadings(readings);
-      const magnitude = this.calculateMagnitude(avgReading);
-
-      const sensorData: SensorData = {
-        type: SensorType.ACCELEROMETER,
-        timestamp: Date.now(),
-        data: {
-          ...avgReading,
-          magnitude,
-          sampleCount: samples,
-          duration,
-        },
-        deviceId: this.deviceId,
-      };
-
-      return await this.proofGen.generateProof(sensorData);
-    } catch (error) {
-      console.error('Failed to generate movement proof:', error);
-      throw error;
-    }
+    return await this.proofGen.generateProof(sensorData);
   }
 
   /**
-   * Detect steps from accelerometer data
-   * Returns step count and proof
+   * Detect steps from accelerometer data and return step count + proof.
    */
   async detectStepsWithProof(
-    durationMs: number = 60000 // 1 minute
-  ): Promise<{
-    steps: number;
-    proof: any;
-  }> {
+    durationMs: number = 60000
+  ): Promise<{ steps: number; proof: any }> {
     return new Promise((resolve, reject) => {
       let steps = 0;
       let lastMagnitude = 0;
       let lastStepTime = 0;
       const readings: AccelerometerData[] = [];
 
-      const minTimeBetweenSteps = 200; // ms
+      const minTimeBetweenSteps = 200;
       const stepThreshold = 1.2;
 
-      this.setUpdateInterval(100); // 10 Hz
+      this.setUpdateInterval(100);
 
       const subscription = Sensors.Accelerometer.addListener((data) => {
-        const accelData = { x: data.x, y: data.y, z: data.z };
+        const accelData: AccelerometerData = { x: data.x, y: data.y, z: data.z };
         readings.push(accelData);
 
         const magnitude = this.calculateMagnitude(accelData);
 
-        // Simple step detection
         if (
           magnitude > stepThreshold &&
           lastMagnitude <= stepThreshold &&
@@ -153,7 +174,6 @@ export class AccelerometerProofGenerator {
         lastMagnitude = magnitude;
       });
 
-      // Stop after duration
       setTimeout(async () => {
         subscription.remove();
 
@@ -179,13 +199,16 @@ export class AccelerometerProofGenerator {
   }
 
   /**
-   * Subscribe to continuous accelerometer updates with periodic proofs
+   * Subscribe to continuous accelerometer updates with periodic proof generation.
+   *
+   * Fix: properly returns the subscription object (not this.subscription)
+   * so multiple concurrent subscriptions don't overwrite each other.
    */
   subscribeWithProofs(
     callback: (data: AccelerometerData, proof?: any) => void,
     options?: {
-      updateInterval?: number; // ms
-      proofInterval?: number; // number of updates between proofs
+      updateInterval?: number;
+      proofInterval?: number;
     }
   ): { remove: () => void } {
     const { updateInterval = 100, proofInterval = 10 } = options || {};
@@ -195,22 +218,18 @@ export class AccelerometerProofGenerator {
 
     this.setUpdateInterval(updateInterval);
 
-    this.subscription = Sensors.Accelerometer.addListener(async (data) => {
-      const accelData: AccelerometerData = {
-        x: data.x,
-        y: data.y,
-        z: data.z,
-      };
+    const subscription = Sensors.Accelerometer.addListener(async (data) => {
+      const accelData: AccelerometerData = { x: data.x, y: data.y, z: data.z };
 
       readings.push(accelData);
       updateCount++;
 
       callback(accelData);
 
-      // Generate proof at intervals
       if (updateCount % proofInterval === 0) {
         try {
-          const avgReading = this.averageReadings(readings.slice(-proofInterval));
+          const window = readings.slice(-proofInterval);
+          const avgReading = this.averageReadings(window);
 
           const sensorData: SensorData = {
             type: SensorType.ACCELEROMETER,
@@ -226,25 +245,23 @@ export class AccelerometerProofGenerator {
           const proof = await this.proofGen.generateProof(sensorData);
           callback(accelData, proof);
         } catch (error) {
-          console.error('Failed to generate periodic proof:', error);
+          console.error('[AccelProof] Failed to generate periodic proof:', error);
         }
       }
     });
 
-    return this.subscription;
+    // Store reference for cleanup() while also returning for caller control
+    this.subscription = subscription;
+    return subscription;
   }
 
   /**
-   * Detect device shake
+   * Detect device shake and return result + optional proof
    */
   async detectShake(
     thresholdG: number = 2.5,
     durationMs: number = 5000
-  ): Promise<{
-    shakeDetected: boolean;
-    maxMagnitude: number;
-    proof?: any;
-  }> {
+  ): Promise<{ shakeDetected: boolean; maxMagnitude: number; proof?: any }> {
     return new Promise((resolve) => {
       let maxMagnitude = 0;
       let shakeDetected = false;
@@ -254,35 +271,31 @@ export class AccelerometerProofGenerator {
       const subscription = Sensors.Accelerometer.addListener((data) => {
         const magnitude = this.calculateMagnitude(data);
 
-        if (magnitude > maxMagnitude) {
-          maxMagnitude = magnitude;
-        }
-
-        if (magnitude > thresholdG) {
-          shakeDetected = true;
-        }
+        if (magnitude > maxMagnitude) maxMagnitude = magnitude;
+        if (magnitude > thresholdG) shakeDetected = true;
       });
 
       setTimeout(async () => {
         subscription.remove();
 
-        let proof;
-        if (shakeDetected) {
+        if (!shakeDetected) {
+          return resolve({ shakeDetected, maxMagnitude });
+        }
+
+        try {
           const sensorData: SensorData = {
             type: SensorType.ACCELEROMETER,
             timestamp: Date.now(),
-            data: {
-              event: 'shake',
-              maxMagnitude,
-              threshold: thresholdG,
-            },
+            data: { event: 'shake', maxMagnitude, threshold: thresholdG },
             deviceId: this.deviceId,
           };
 
-          proof = await this.proofGen.generateProof(sensorData);
+          const proof = await this.proofGen.generateProof(sensorData);
+          resolve({ shakeDetected, maxMagnitude, proof });
+        } catch (error) {
+          console.error('[AccelProof] Failed to generate shake proof:', error);
+          resolve({ shakeDetected, maxMagnitude });
         }
-
-        resolve({ shakeDetected, maxMagnitude, proof });
       }, durationMs);
     });
   }
@@ -298,16 +311,10 @@ export class AccelerometerProofGenerator {
    * Average multiple readings
    */
   private averageReadings(readings: AccelerometerData[]): AccelerometerData {
-    if (readings.length === 0) {
-      return { x: 0, y: 0, z: 0 };
-    }
+    if (readings.length === 0) return { x: 0, y: 0, z: 0 };
 
     const sum = readings.reduce(
-      (acc, reading) => ({
-        x: acc.x + reading.x,
-        y: acc.y + reading.y,
-        z: acc.z + reading.z,
-      }),
+      (acc, r) => ({ x: acc.x + r.x, y: acc.y + r.y, z: acc.z + r.z }),
       { x: 0, y: 0, z: 0 }
     );
 
@@ -319,7 +326,7 @@ export class AccelerometerProofGenerator {
   }
 
   /**
-   * Classify activity type from accelerometer data
+   * Classify activity type from acceleration magnitude
    */
   classifyActivity(magnitude: number): 'still' | 'walking' | 'running' | 'vehicle' {
     if (magnitude < 0.2) return 'still';
@@ -329,7 +336,7 @@ export class AccelerometerProofGenerator {
   }
 
   /**
-   * Stop all subscriptions
+   * Stop the active subscription from subscribeWithProofs()
    */
   cleanup(): void {
     if (this.subscription) {

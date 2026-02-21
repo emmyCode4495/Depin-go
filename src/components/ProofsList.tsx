@@ -1,9 +1,11 @@
 /**
  * ProofsList - Display list of generated proofs
+ * Uses plain View mapping instead of FlatList so it can safely
+ * live inside a parent ScrollView without the nested VirtualizedList warning.
  */
 
 import React from 'react';
-import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { SensorProof } from '@/src/types';
 
@@ -33,19 +35,17 @@ export function ProofsList({
   }
 
   return (
-    <FlatList
-      data={proofs}
-      keyExtractor={(item) => item.proofHash}
-      renderItem={({ item }) => (
+    <View style={styles.list}>
+      {proofs.map((item) => (
         <ProofItem
+          key={item.proofHash}
           proof={item}
           onPress={() => onProofPress?.(item)}
           onSubmit={() => onSubmit?.(item)}
           showSubmitButton={showSubmitButton}
         />
-      )}
-      contentContainerStyle={styles.list}
-    />
+      ))}
+    </View>
   );
 }
 
@@ -119,7 +119,7 @@ function getSensorIcon(sensorType: string): string {
 function formatProofData(sensorType: string, data: any): string {
   switch (sensorType) {
     case 'gps':
-      return `Lat: ${data.latitude?.toFixed(6)}, Lng: ${data.longitude?.toFixed(6)}, Accuracy: ${data.accuracy}m`;
+      return `Lat: ${data.latitude?.toFixed(6)}, Lng: ${data.longitude?.toFixed(6)}, Accuracy: ${data.accuracy?.toFixed(1)}m`;
     case 'accelerometer':
       return `X: ${data.x?.toFixed(2)}, Y: ${data.y?.toFixed(2)}, Z: ${data.z?.toFixed(2)}`;
     default:
@@ -129,10 +129,9 @@ function formatProofData(sensorType: string, data: any): string {
 
 const styles = StyleSheet.create({
   list: {
-    padding: 16,
+    gap: 0,
   },
   emptyContainer: {
-    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     padding: 40,

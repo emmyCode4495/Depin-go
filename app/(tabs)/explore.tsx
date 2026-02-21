@@ -1,10 +1,23 @@
-import { StyleSheet, Text, View, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import {
+  StyleSheet,
+  Text,
+  View,
+  ScrollView,
+  Alert,
+  ActivityIndicator,
+  TouchableOpacity,
+  Dimensions,
+} from 'react-native';
 import { useState, useEffect } from 'react';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { SensorCard } from '@/src/components/SensorCard';
 import { useSensorProof } from '@/src/hooks/useSensorProof';
 import { useMWA } from '@/src/context/MWAContext';
 import { proofStorage } from '@/src/sdk/storage/ProofStorage';
 import { SensorType } from '@/src/types';
+
+const { width } = Dimensions.get('window');
 
 export default function SensorsScreen() {
   const { isConnected } = useMWA();
@@ -18,205 +31,151 @@ export default function SensorsScreen() {
   const gpsProof = useSensorProof(SensorType.GPS);
   const accelProof = useSensorProof(SensorType.ACCELEROMETER);
 
-  // Load proof counts on mount
   useEffect(() => {
     loadProofCounts();
   }, []);
 
   const loadProofCounts = async () => {
     const allProofs = await proofStorage.getAllProofs();
-    const gpsCount = allProofs.filter(p => p.proof.sensorData.type === 'gps').length;
-    const accelCount = allProofs.filter(p => p.proof.sensorData.type === 'accelerometer').length;
-    
-    setGpsProofCount(gpsCount);
-    setAccelProofCount(accelCount);
+    setGpsProofCount(allProofs.filter(p => p.proof.sensorData.type === 'gps').length);
+    setAccelProofCount(allProofs.filter(p => p.proof.sensorData.type === 'accelerometer').length);
   };
 
-  // GPS Sensor Handlers
+  // ── GPS Handlers ──────────────────────────────────────────────────────────
+
   const handleActivateGps = async () => {
     if (!isConnected) {
-      Alert.alert(
-        'Wallet Not Connected',
-        'Please connect your wallet first from the Dashboard tab',
-        [{ text: 'OK' }]
-      );
+      Alert.alert('Wallet Not Connected', 'Connect your wallet from the Dashboard tab first.');
       return;
     }
-
     try {
       const hasPermission = await gpsProof.requestPermissions();
       if (!hasPermission) {
-        Alert.alert('Permission Denied', 'GPS access is required for location proofs');
+        Alert.alert('Permission Denied', 'GPS access is required for location proofs.');
         return;
       }
       setGpsActive(true);
-      Alert.alert('GPS Active ✓', 'GPS sensor is now active. You can now generate proofs.');
     } catch (error) {
       Alert.alert('Error', `Failed to activate GPS: ${error}`);
-      console.error('GPS activation error:', error);
     }
   };
 
-  const handleDeactivateGps = () => {
-    setGpsActive(false);
-  };
+  const handleDeactivateGps = () => setGpsActive(false);
 
   const handleGenerateGpsProof = async () => {
     if (!isConnected) {
-      Alert.alert('Wallet Not Connected', 'Please connect your wallet first');
+      Alert.alert('Wallet Not Connected', 'Connect your wallet first.');
       return;
     }
-
     try {
-      console.log('Starting GPS proof generation...');
-      
       const proof = await gpsProof.generateLocationProof({
-        minAccuracy: 50,
+        minAccuracy: 200,
         includeAltitude: true,
         includeSpeed: true,
       });
-
-      console.log('GPS proof generated:', proof);
-
       if (proof) {
         setLastGpsReading(proof.sensorData.data);
         await loadProofCounts();
-        
         Alert.alert(
           'GPS Proof Generated ✓',
-          `Location: ${proof.sensorData.data.latitude.toFixed(6)}, ${proof.sensorData.data.longitude.toFixed(6)}\n\n` +
-          `Accuracy: ${proof.sensorData.data.accuracy?.toFixed(2)}m\n\n` +
-          `Proof Hash: ${proof.proofHash.slice(0, 16)}...`,
+          `${proof.sensorData.data.latitude.toFixed(6)}, ${proof.sensorData.data.longitude.toFixed(6)}\n` +
+          `Accuracy: ±${proof.sensorData.data.accuracy?.toFixed(1)}m\n\n` +
+          `Hash: ${proof.proofHash.slice(0, 20)}...`,
           [{ text: 'OK' }]
         );
-      } else {
-        Alert.alert('Error', 'Failed to generate GPS proof - no proof returned');
       }
     } catch (error: any) {
-      console.error('GPS proof generation error:', error);
-      Alert.alert(
-        'GPS Proof Error',
-        error?.message || 'Failed to generate GPS proof. Make sure location services are enabled.',
-        [{ text: 'OK' }]
-      );
+      Alert.alert('GPS Error', error?.message || 'Failed to generate GPS proof.');
     }
   };
 
-  // Accelerometer Sensor Handlers
+  // ── Accelerometer Handlers ────────────────────────────────────────────────
+
   const handleActivateAccel = async () => {
     if (!isConnected) {
-      Alert.alert(
-        'Wallet Not Connected',
-        'Please connect your wallet first from the Dashboard tab',
-        [{ text: 'OK' }]
-      );
+      Alert.alert('Wallet Not Connected', 'Connect your wallet from the Dashboard tab first.');
       return;
     }
-
     try {
       const available = await accelProof.accelGenerator.isAvailable();
       if (!available) {
-        Alert.alert('Not Available', 'Accelerometer not available on this device');
+        Alert.alert('Not Available', 'Accelerometer not available on this device.');
         return;
       }
       setAccelActive(true);
-      Alert.alert('Accelerometer Active ✓', 'Accelerometer sensor is now active. You can now generate proofs.');
     } catch (error) {
       Alert.alert('Error', `Failed to activate accelerometer: ${error}`);
-      console.error('Accelerometer activation error:', error);
     }
   };
 
-  const handleDeactivateAccel = () => {
-    setAccelActive(false);
-  };
+  const handleDeactivateAccel = () => setAccelActive(false);
 
   const handleGenerateAccelProof = async () => {
     if (!isConnected) {
-      Alert.alert('Wallet Not Connected', 'Please connect your wallet first');
+      Alert.alert('Wallet Not Connected', 'Connect your wallet first.');
       return;
     }
-
     try {
-      Alert.alert('Detecting Movement', 'Move your device for 2 seconds...', [{ text: 'OK' }]);
-      
-      console.log('Starting accelerometer proof generation...');
-      
-      const proof = await accelProof.generateMovementProof({
-        duration: 2000,
-        samples: 20,
-      });
-
-      console.log('Accelerometer proof generated:', proof);
-
+      Alert.alert('Detecting Movement', 'Move your device for 2 seconds…', [{ text: 'OK' }]);
+      const proof = await accelProof.generateMovementProof({ duration: 2000, samples: 20 });
       if (proof) {
         setLastAccelReading(proof.sensorData.data);
         await loadProofCounts();
-        
-        const magnitude = proof.sensorData.data.magnitude?.toFixed(2) || 'N/A';
         Alert.alert(
           'Movement Proof Generated ✓',
-          `Magnitude: ${magnitude}\n\n` +
-          `X: ${proof.sensorData.data.x?.toFixed(2)}, ` +
-          `Y: ${proof.sensorData.data.y?.toFixed(2)}, ` +
-          `Z: ${proof.sensorData.data.z?.toFixed(2)}\n\n` +
-          `Proof Hash: ${proof.proofHash.slice(0, 16)}...`,
+          `Magnitude: ${proof.sensorData.data.magnitude?.toFixed(2) ?? 'N/A'}\n` +
+          `X: ${proof.sensorData.data.x?.toFixed(2)}  Y: ${proof.sensorData.data.y?.toFixed(2)}  Z: ${proof.sensorData.data.z?.toFixed(2)}\n\n` +
+          `Hash: ${proof.proofHash.slice(0, 20)}...`,
           [{ text: 'OK' }]
         );
-      } else {
-        Alert.alert('Error', 'Failed to generate movement proof - no proof returned');
       }
     } catch (error: any) {
-      console.error('Accelerometer proof generation error:', error);
-      Alert.alert(
-        'Movement Proof Error',
-        error?.message || 'Failed to generate movement proof',
-        [{ text: 'OK' }]
-      );
+      Alert.alert('Motion Error', error?.message || 'Failed to generate movement proof.');
     }
   };
 
-  // Show wallet connection warning if not connected
+  // ── Not connected view ────────────────────────────────────────────────────
+
   if (!isConnected) {
     return (
-      <ScrollView style={styles.container}>
-        <Text style={styles.title}>Sensor Management</Text>
-        <Text style={styles.subtitle}>
-          Activate sensors and generate cryptographically signed proofs
-        </Text>
-
-        <View style={styles.warningCard}>
-          <Text style={styles.warningTitle}>⚠️ Wallet Not Connected</Text>
-          <Text style={styles.warningText}>
-            You need to connect your wallet before generating sensor proofs.
-          </Text>
-          <Text style={styles.warningText}>
-            Go to the Dashboard tab and tap "Connect Wallet" to get started.
-          </Text>
+      <ScrollView style={styles.root} contentContainerStyle={styles.scroll}>
+        <View style={styles.heroBg}>
+          <View style={styles.glowPurple} />
+          <View style={styles.glowGreen} />
         </View>
 
-        {/* Show inactive sensors */}
-        <SensorCard
-          sensorType={SensorType.GPS}
-          isActive={false}
-          proofCount={gpsProofCount}
-        />
+        <PageHeader />
 
-        <SensorCard
-          sensorType={SensorType.ACCELEROMETER}
-          isActive={false}
-          proofCount={accelProofCount}
-        />
+        {/* Warning card */}
+        <View style={styles.warningCard}>
+          <LinearGradient colors={['#FF4444', '#FF6B00']} style={styles.warningIcon} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+            <Ionicons name="warning" size={16} color="#fff" />
+          </LinearGradient>
+          <View style={styles.warningBody}>
+            <Text style={styles.warningTitle}>Wallet Not Connected</Text>
+            <Text style={styles.warningText}>
+              Connect your wallet from the Dashboard tab to activate sensors and generate proofs.
+            </Text>
+          </View>
+        </View>
+
+        {/* Inactive sensor cards */}
+        <SensorCard sensorType={SensorType.GPS} isActive={false} proofCount={gpsProofCount} />
+        <SensorCard sensorType={SensorType.ACCELEROMETER} isActive={false} proofCount={accelProofCount} />
       </ScrollView>
     );
   }
 
+  // ── Connected view ────────────────────────────────────────────────────────
+
   return (
-    <ScrollView style={styles.container}>
-      <Text style={styles.title}>Sensor Management</Text>
-      <Text style={styles.subtitle}>
-        Activate sensors and generate cryptographically signed proofs
-      </Text>
+    <ScrollView style={styles.root} contentContainerStyle={styles.scroll}>
+      <View style={styles.heroBg}>
+        <View style={styles.glowPurple} />
+        <View style={styles.glowGreen} />
+      </View>
+
+      <PageHeader />
 
       {/* GPS Sensor Card */}
       <SensorCard
@@ -229,13 +188,7 @@ export default function SensorsScreen() {
         onGenerateProof={handleGenerateGpsProof}
       />
 
-      {/* Show loading indicator if generating GPS proof */}
-      {gpsProof.isGenerating && (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#9945FF" />
-          <Text style={styles.loadingText}>Generating GPS proof...</Text>
-        </View>
-      )}
+      {gpsProof.isGenerating && <LoadingCard label="Generating GPS proof…" />}
 
       {/* Accelerometer Sensor Card */}
       <SensorCard
@@ -248,155 +201,298 @@ export default function SensorsScreen() {
         onGenerateProof={handleGenerateAccelProof}
       />
 
-      {/* Show loading indicator if generating accel proof */}
-      {accelProof.isGenerating && (
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#9945FF" />
-          <Text style={styles.loadingText}>Generating movement proof...</Text>
-        </View>
-      )}
+      {accelProof.isGenerating && <LoadingCard label="Generating movement proof…" />}
 
-      {/* Stats Summary */}
-      <View style={styles.statsCard}>
-        <Text style={styles.statsTitle}>Total Proofs Generated</Text>
-        <View style={styles.statsRow}>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{gpsProofCount}</Text>
-            <Text style={styles.statLabel}>GPS</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{accelProofCount}</Text>
-            <Text style={styles.statLabel}>Movement</Text>
-          </View>
-          <View style={styles.statItem}>
-            <Text style={styles.statValue}>{gpsProofCount + accelProofCount}</Text>
-            <Text style={styles.statLabel}>Total</Text>
-          </View>
-        </View>
+      {/* Stats summary */}
+      <Text style={styles.sectionLabel}>SESSION STATS</Text>
+      <View style={styles.statsRow}>
+        <StatChip icon="location" label="GPS" value={gpsProofCount} color="#14F195" />
+        <StatChip icon="fitness" label="Motion" value={accelProofCount} color="#F5A623" />
+        <StatChip icon="layers" label="Total" value={gpsProofCount + accelProofCount} color="#9945FF" />
       </View>
 
-      {/* Info Card */}
+      {/* How it works */}
+      <Text style={styles.sectionLabel}>HOW IT WORKS</Text>
       <View style={styles.infoCard}>
-        <Text style={styles.infoTitle}>💡 How It Works</Text>
-        <Text style={styles.infoText}>
-          1. Make sure your wallet is connected (Dashboard tab)
-        </Text>
-        <Text style={styles.infoText}>
-          2. Tap "Activate" to enable a sensor
-        </Text>
-        <Text style={styles.infoText}>
-          3. Tap "Generate Proof" to create a cryptographically signed proof
-        </Text>
-        <Text style={styles.infoText}>
-          4. All proofs are stored locally and can be submitted to blockchain
-        </Text>
-        <Text style={styles.infoText}>
-          5. Seed Vault ensures proofs can't be faked or spoofed
-        </Text>
+        {[
+          { icon: 'wallet-outline', text: 'Wallet connected via Mobile Wallet Adapter' },
+          { icon: 'radio-button-on', text: 'Tap Activate to enable a sensor' },
+          { icon: 'shield-checkmark-outline', text: 'Generate Proof creates a hardware-signed record' },
+          { icon: 'server-outline', text: 'Proofs are stored locally and ready for on-chain submission' },
+          { icon: 'lock-closed-outline', text: 'Seed Vault ensures proofs cannot be faked or spoofed' },
+        ].map((item, i) => (
+          <View key={i} style={[styles.infoRow, i === 4 && styles.infoRowLast]}>
+            <View style={styles.infoIconWrap}>
+              <Ionicons name={item.icon as any} size={14} color="#9945FF" />
+            </View>
+            <Text style={styles.infoText}>{item.text}</Text>
+          </View>
+        ))}
       </View>
     </ScrollView>
   );
 }
 
+// ─── Sub-components ───────────────────────────────────────────────────────────
+
+function PageHeader() {
+  return (
+    <View style={styles.headerRow}>
+      <View>
+        <Text style={styles.pageTitle}>Sensors</Text>
+        <Text style={styles.pageSub}>Generate cryptographic sensor proofs</Text>
+      </View>
+      <View style={styles.seedVaultBadge}>
+        <LinearGradient colors={['#9945FF', '#14F195']} style={styles.seedVaultGrad} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }}>
+          <Ionicons name="hardware-chip" size={12} color="#fff" />
+        </LinearGradient>
+        <Text style={styles.seedVaultText}>Seed Vault</Text>
+      </View>
+    </View>
+  );
+}
+
+function LoadingCard({ label }: { label: string }) {
+  return (
+    <View style={styles.loadingCard}>
+      <ActivityIndicator size="small" color="#9945FF" />
+      <Text style={styles.loadingText}>{label}</Text>
+    </View>
+  );
+}
+
+function StatChip({ icon, label, value, color }: { icon: string; label: string; value: number; color: string }) {
+  return (
+    <View style={[styles.statChip, { borderColor: color + '33' }]}>
+      <Ionicons name={icon as any} size={16} color={color} />
+      <Text style={[styles.statValue, { color }]}>{value}</Text>
+      <Text style={styles.statLabel}>{label}</Text>
+    </View>
+  );
+}
+
+// ─── Styles ───────────────────────────────────────────────────────────────────
+
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: '#f5f5f5',
-    padding: 16,
+    backgroundColor: '#080810',
   },
-  title: {
+  scroll: {
+    paddingBottom: 48,
+  },
+
+  // Glow background (matches dashboard)
+  heroBg: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 280,
+    overflow: 'hidden',
+  },
+  glowPurple: {
+    position: 'absolute',
+    top: -60,
+    left: -40,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: '#9945FF',
+    opacity: 0.15,
+    shadowColor: '#9945FF',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 80,
+  },
+  glowGreen: {
+    position: 'absolute',
+    top: 10,
+    right: -60,
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: '#14F195',
+    opacity: 0.10,
+    shadowColor: '#14F195',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 1,
+    shadowRadius: 80,
+  },
+
+  // Header
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 56,
+    paddingBottom: 24,
+  },
+  pageTitle: {
     fontSize: 28,
-    fontWeight: 'bold',
+    fontWeight: '900',
+    color: '#FFFFFF',
+    letterSpacing: -0.8,
+  },
+  pageSub: {
+    fontSize: 12,
+    color: '#444',
+    marginTop: 3,
+  },
+  seedVaultBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#9945FF14',
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderWidth: 1,
+    borderColor: '#9945FF33',
+  },
+  seedVaultGrad: {
+    width: 20,
+    height: 20,
+    borderRadius: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  seedVaultText: {
+    fontSize: 11,
     color: '#9945FF',
-    marginBottom: 4,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
-  subtitle: {
-    fontSize: 14,
-    color: '#666',
-    marginBottom: 20,
-  },
+
+  // Warning (not connected)
   warningCard: {
-    backgroundColor: '#FFF3E0',
-    borderRadius: 12,
-    padding: 20,
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 14,
+    marginHorizontal: 16,
     marginBottom: 20,
-    borderWidth: 2,
-    borderColor: '#FF9800',
+    backgroundColor: '#FF440011',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#FF440033',
+  },
+  warningIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  warningBody: {
+    flex: 1,
   },
   warningTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 12,
-    color: '#E65100',
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#FF6655',
+    marginBottom: 4,
   },
   warningText: {
-    fontSize: 14,
-    color: '#E65100',
-    marginBottom: 8,
-    lineHeight: 20,
+    fontSize: 13,
+    color: '#664444',
+    lineHeight: 19,
   },
-  loadingContainer: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 16,
-    alignItems: 'center',
-    borderWidth: 2,
-    borderColor: '#9945FF',
-  },
-  loadingText: {
-    marginTop: 12,
-    fontSize: 16,
-    color: '#9945FF',
-    fontWeight: '600',
-  },
-  statsCard: {
-    backgroundColor: 'white',
-    borderRadius: 12,
-    padding: 20,
-    marginBottom: 16,
-    borderWidth: 2,
-    borderColor: '#9945FF',
-  },
-  statsTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  statsRow: {
+
+  // Loading card
+  loadingCard: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
-  },
-  statItem: {
     alignItems: 'center',
-  },
-  statValue: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: '#9945FF',
-  },
-  statLabel: {
-    fontSize: 12,
-    color: '#666',
-    marginTop: 4,
-  },
-  infoCard: {
-    backgroundColor: '#E8F5E9',
+    gap: 12,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    backgroundColor: '#111118',
     borderRadius: 12,
     padding: 16,
-    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: '#9945FF44',
   },
-  infoTitle: {
-    fontSize: 16,
+  loadingText: {
+    fontSize: 14,
+    color: '#9945FF',
     fontWeight: '600',
+  },
+
+  // Section label (matches dashboard)
+  sectionLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: '#444',
+    letterSpacing: 2,
+    paddingHorizontal: 20,
+    marginTop: 8,
     marginBottom: 12,
-    color: '#333',
+  },
+
+  // Stats
+  statsRow: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    gap: 10,
+    marginBottom: 28,
+  },
+  statChip: {
+    flex: 1,
+    backgroundColor: '#111118',
+    borderRadius: 14,
+    padding: 14,
+    alignItems: 'center',
+    gap: 6,
+    borderWidth: 1,
+  },
+  statValue: {
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  statLabel: {
+    fontSize: 10,
+    color: '#444',
+    fontWeight: '600',
+    letterSpacing: 0.5,
+  },
+
+  // Info card
+  infoCard: {
+    marginHorizontal: 16,
+    backgroundColor: '#111118',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#1C1C2E',
+    overflow: 'hidden',
+    marginBottom: 12,
+  },
+  infoRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1A1A2E',
+  },
+  infoRowLast: {
+    borderBottomWidth: 0,
+  },
+  infoIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    backgroundColor: '#9945FF18',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
   },
   infoText: {
-    fontSize: 14,
-    color: '#333',
-    marginBottom: 8,
-    lineHeight: 20,
+    fontSize: 13,
+    color: '#555',
+    flex: 1,
+    lineHeight: 19,
   },
 });
